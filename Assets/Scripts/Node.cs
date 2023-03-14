@@ -8,8 +8,8 @@ public class Node : IHeapItem<Node> {
 	public int gridX;
 	public int gridY;
 
-	public int gCost; // Cost so far
-	public int hCost; // Estimated cost left
+	public int costToThisNode; // Cost so far
+	public int heuristic; // Estimated cost left
 	public Node parent; // Previous node in path
 	int heapIndex;
 	
@@ -22,9 +22,9 @@ public class Node : IHeapItem<Node> {
 	}
 
 	// Estimated journey cost
-	public int fCost {
+	public int estimatedTotalDistance {
 		get {
-			return gCost + hCost;
+			return costToThisNode + heuristic;
 		}
 	}
 
@@ -39,9 +39,9 @@ public class Node : IHeapItem<Node> {
 
 	// Compare two nodes, what is lower cost
 	public int CompareTo(Node nodeToCompare) {
-		int compare = fCost.CompareTo(nodeToCompare.fCost); // which has a better total cost
+		int compare = estimatedTotalDistance.CompareTo(nodeToCompare.estimatedTotalDistance); // which has a better total cost
 		if (compare == 0) {
-			compare = hCost.CompareTo(nodeToCompare.hCost); // which has a better estimated cost
+			compare = heuristic.CompareTo(nodeToCompare.heuristic); // which has a better estimated cost
 		}
 		return -compare; // take the smaller
 	}

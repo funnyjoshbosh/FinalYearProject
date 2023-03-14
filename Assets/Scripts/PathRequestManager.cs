@@ -5,7 +5,7 @@ using System;
 
 public class PathRequestManager : MonoBehaviour {
 
-	Queue<PathRequest> pathRequestQueue = new Queue<PathRequest>();
+	Queue<PathRequest> pathRequestQueue = new Queue<PathRequest>(); // All path requests
 	PathRequest currentPathRequest;
 
 	static PathRequestManager instance;
@@ -24,9 +24,10 @@ public class PathRequestManager : MonoBehaviour {
 		instance.TryProcessNext();
 	}
 
+	// Try to process the next pathfinding request
 	void TryProcessNext() {
 		if (!isProcessingPath && pathRequestQueue.Count > 0) {
-			currentPathRequest = pathRequestQueue.Dequeue();
+			currentPathRequest = pathRequestQueue.Dequeue(); // Remove and use the first item in queue
 			isProcessingPath = true;
 			pathfinding.StartFindPath(currentPathRequest.pathStart, currentPathRequest.pathEnd);
 		}
