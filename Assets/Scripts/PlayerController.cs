@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-public class PlayerController : MonoBehaviour
+public class PlayerController : MonoBehaviour, IDamagable
 {
     private Rigidbody rb;
     private Camera cam;
@@ -15,6 +15,19 @@ public class PlayerController : MonoBehaviour
     public float maxRotStep;
     private Vector2 mousePos;
     private Vector2 movement;
+
+    public int health;
+    private bool isShoot;
+    private float shootCooldown;
+    public float fireRate;
+    public Transform bulletOrigin;
+    public GameObject bulletPrefab;
+    public float bulletSpeed = 80f;
+
+    public void OnShoot(InputAction.CallbackContext ctx)
+    {
+        isShoot = ctx.ReadValueAsButton();
+    }
 
     public void OnAim(InputAction.CallbackContext ctx)
     {
@@ -35,8 +48,20 @@ public class PlayerController : MonoBehaviour
         movement = Vector2.zero;
     }
 
+    void Update()
+    {
+        if (health <= 0)
+        {
+            Debug.Log("You have died");
+        }
+    }
+
     void FixedUpdate()
     {
+        shootCooldown -= Time.fixedDeltaTime;
+        if (isShoot && shootCooldown <= 0f)
+            Shoot();
+
         rb.AddRelativeForce(new Vector3(movement.x, 0.0f, movement.y) * thrust, ForceMode.Force);
         rb.velocity = Vector3.ClampMagnitude(rb.velocity, maxSpeed);
 
@@ -47,5 +72,19 @@ public class PlayerController : MonoBehaviour
         float angle = Vector2.SignedAngle(shipDirection, targetDirection);
         float step = Mathf.Clamp(angle * rotSpeed, -maxRotStep, maxRotStep) * Time.fixedDeltaTime;
         transform.RotateAround(transform.position, Vector3.down, step);
+    }
+
+    private void Shoot()
+    {
+        GameObject bullet = Instantiate(bulletPrefab, bulletOrigin.position, bulletOrigin.rotation);
+        Bullet bulletScript = bullet.GetComponent<Bullet>();
+        bulletScript.lifetime = 3f;
+        bulletScript.speed = bulletSpeed;
+        shootCooldown = 1f/fireRate;
+    }
+
+    public void Damage()
+    {
+        health -= 10;
     }
 }

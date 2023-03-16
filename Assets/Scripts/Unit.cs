@@ -9,11 +9,19 @@ public class Unit : MonoBehaviour {
 	Vector3[] path;
 	int targetIndex;
 
-	void Start() {
+	public float thrust;
+	public float maxSpeed;
+	public float rotSpeed;
+	public float maxRotStep;
+	private Vector2 movement;
+
+	void Start()
+	{
 		PathRequestManager.RequestPath(transform.position,target.position, OnPathFound);
 	}
 
-	public void OnPathFound(Vector3[] newPath, bool pathSuccessful) {
+	public void OnPathFound(Vector3[] newPath, bool pathSuccessful)
+	{
 		if (pathSuccessful) {
 			path = newPath;
 			targetIndex = 0;
@@ -22,20 +30,33 @@ public class Unit : MonoBehaviour {
 		}
 	}
 
-	IEnumerator FollowPath() {
+	IEnumerator FollowPath()
+	{
 		Vector3 currentWaypoint = path[0];
-		while (true) {
-			if (transform.position == currentWaypoint) {
+		while (true) 
+		{
+			if (transform.position == currentWaypoint) 
+			{
 				targetIndex ++;
-				if (targetIndex >= path.Length) {
+				if (targetIndex >= path.Length) 
 					yield break;
-				}
 				currentWaypoint = path[targetIndex];
 			}
-
-			transform.position = Vector3.MoveTowards(transform.position,currentWaypoint,speed * Time.deltaTime);
+            LookForward(currentWaypoint);
+            transform.position = Vector3.MoveTowards(transform.position, currentWaypoint, speed * Time.deltaTime);
 			yield return null;
-
 		}
+	}
+
+	public void LookForward(Vector3 currentWaypoint)
+    {
+		Vector2 shipPos = transform.position;
+		Vector2 shipDirection = new Vector2(transform.forward.x, transform.forward.z);
+		Vector2 waypoint = new Vector2(currentWaypoint.x, currentWaypoint.z);
+		Vector2 targetDirection = waypoint - shipPos;
+
+		float angle = Vector2.SignedAngle(shipDirection, targetDirection);
+		float step = Mathf.Clamp(angle * rotSpeed, -maxRotStep, maxRotStep) * Time.fixedDeltaTime;
+		transform.RotateAround(transform.position, Vector3.down, step);
 	}
 }
