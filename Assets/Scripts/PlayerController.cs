@@ -8,7 +8,6 @@ public class PlayerController : MonoBehaviour, IDamagable
     private Rigidbody rb;
     private Camera cam;
     public InputMaster inputMaster;
-    public float camOffset;
     public float thrust;
     public float maxSpeed;
     public float rotSpeed;
@@ -22,7 +21,7 @@ public class PlayerController : MonoBehaviour, IDamagable
     public float fireRate;
     public Transform bulletOrigin;
     public GameObject bulletPrefab;
-    public float bulletSpeed = 80f;
+    public float bulletSpeed;
 
     public void OnShoot(InputAction.CallbackContext ctx)
     {

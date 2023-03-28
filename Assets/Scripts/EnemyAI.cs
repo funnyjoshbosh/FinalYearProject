@@ -4,71 +4,65 @@ using UnityEngine;
 
 public class EnemyAI : MonoBehaviour, IDamagable
 {
-    public Transform player;
+    [SerializeField] private GameObject player;
+    [SerializeField] private Transform defencePoint;
 
     private Rigidbody rb;
     public List<GameObject> waypoints;
     public int currentWaypoint;
+    public float waypointThreshold;
+
     public float thrust;
     public float maxSpeed;
     public float rotSpeed;
     public float maxRotStep;
-    private Vector2 movement;
 
     public int health;
-    [SerializeField] private bool isShoot;
     private float shootCooldown;
     public float fireRate;
     public Transform bulletOrigin;
     public GameObject bulletPrefab;
-    public float bulletSpeed = 20f;
-
+    public float bulletSpeed;
     public float maxFireRange;
     public float fireAngle;
+    public float fireRangePercent; // This is the percentage of the max fire range before maintaining distance
 
-    private enum State
+    public float engageRadius;
+    public float disengageRadius;
+
+    [SerializeField] private AIState state;
+
+    private enum AIState
     {
-        Patroling,
-        Chasing,
-        Engaging,
+        Patrolling,
+        CloseDistance,
+        MaintainDistance,
     }
 
-    // Start is called before the first frame update
     void Start()
     {
         currentWaypoint = 0;
         rb = GetComponent<Rigidbody>();
-        movement = Vector2.zero;
-        player = GameObject.Find("Player").transform;
-        if (player == null)
-            Debug.Log("Player not found!");
+        player = GameObject.Find("Player");
+        defencePoint = GameObject.Find("Defence Point").transform;
+        state = AIState.Patrolling;
     }
 
-    // Update is called once per frame
     void Update()
     {
-        if (health <= 0)
-        {
-            Destroy(gameObject);
-        }
+        CheckDeath();
         CheckShoot();
-        shootCooldown -= Time.fixedDeltaTime;
-        if (isShoot && shootCooldown <= 0f)
-            Shoot();
-    }
-    // Add a raycast below that checks if the player is within range to shoot
-    void FixedUpdate()
-    {
-        if (currentWaypoint <= waypoints.Count)
-        {
-            LookToward(waypoints[currentWaypoint]);
-            MoveToward(waypoints[currentWaypoint]);
-        }
     }
 
-    private void MoveToward(GameObject waypoint)
+    void FixedUpdate()
     {
-        rb.AddRelativeForce(new Vector3(movement.x, 0.0f, movement.y) * thrust, ForceMode.Force);
+        StateTransition();
+        StateBehaviour();
+    }
+
+    private void Movement(GameObject waypoint, float thrust)
+    {
+        rb.AddRelativeForce(new Vector3(0f, 0f, thrust), ForceMode.Force);
         rb.velocity = Vector3.ClampMagnitude(rb.velocity, maxSpeed);
     }
 
@@ -91,12 +85,14 @@ public class EnemyAI : MonoBehaviour, IDamagable
         bulletScript.lifetime = 3f;
         bulletScript.speed = bulletSpeed;
         shootCooldown = 1f / fireRate;
-        isShoot = false;
     }
 
     private void CheckShoot()
     {
-        Vector2 vecToPlayer = new Vector2(player.position.x - bulletOrigin.position.x, player.position.z - bulletOrigin.position.z);
+        shootCooldown -= Time.fixedDeltaTime;
+
+        Vector2 shipPos = new Vector2(player.transform.position.x, player.transform.position.z);
+        Vector2 vecToPlayer = new Vector2(shipPos.x - bulletOrigin.position.x, shipPos.y - bulletOrigin.position.z);
         if (vecToPlayer.magnitude > maxFireRange)
             return;
 
@@ -104,11 +100,79 @@ public class EnemyAI : MonoBehaviour, IDamagable
         if (angleToPlayer > fireAngle)
             return;
 
-        isShoot = true;
+        if (shootCooldown <= 0f)
+            Shoot();
     }
 
     public void Damage()
     {
         health -= 10;
+    }
+
+    private void CheckDeath()
+    {
+        if (health <= 0)
+            Destroy(gameObject);
+    }
+
+    private void StateBehaviour()
+    {
+        if (state == AIState.CloseDistance)
+        {
+            LookToward(player);
+            Movement(player, thrust);
+        }
+
+        else if (state == AIState.MaintainDistance)
+        {
+            LookToward(player);
+            Movement(player, -thrust);
+        }
+
+        else if (state == AIState.Patrolling)
+        {
+            GameObject waypoint = GetWaypoint();
+            LookToward(waypoint);
+            Movement(waypoint, thrust);
+        }
+    }
+
+    private void StateTransition()
+    {
+        Vector2 playerShipPos = new Vector2(player.transform.position.x, player.transform.position.z);
+        // distance between the player and the station
+        float playerStationDist = new Vector2(playerShipPos.x - defencePoint.position.x, playerShipPos.y - defencePoint.position.z).magnitude;
+        // distance between the player and the Enemy
+        float playerEnemyDist = new Vector2(playerShipPos.x - transform.position.x, playerShipPos.y - transform.position.z).magnitude;
+
+        if ((state == AIState.CloseDistance || state == AIState.MaintainDistance) && playerStationDist >= disengageRadius)
+            state = AIState.Patrolling;
+
+        else if (state == AIState.Patrolling && playerStationDist <= engageRadius)
+            state = AIState.CloseDistance;
+
+        else if (state == AIState.CloseDistance && playerEnemyDist <= fireRangePercent/100f * maxFireRange)
+            state = AIState.MaintainDistance;
+
+        else if (state == AIState.MaintainDistance && playerEnemyDist > maxFireRange)
+            state = AIState.CloseDistance;
+    }
+
+    private GameObject GetWaypoint()
+    {
+        GameObject waypoint = waypoints[currentWaypoint];
+
+        Vector2 shipPos = new Vector2(transform.position.x, transform.position.z);
+        Vector2 waypointPos = new Vector2(waypoint.transform.position.x, waypoint.transform.position.z);
+        float waypointDist = (waypointPos - shipPos).magnitude;
+        if (waypointDist <= waypointThreshold)
+        {
+            currentWaypoint++;
+            if (currentWaypoint >= waypoints.Count)
+                currentWaypoint = 0;
+            waypoint = waypoints[currentWaypoint];
+        }
+
+        return waypoint;
     }
 }
