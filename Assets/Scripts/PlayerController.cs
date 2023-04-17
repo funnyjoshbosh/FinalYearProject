@@ -22,6 +22,11 @@ public class PlayerController : MonoBehaviour, IDamagable
     public Transform bulletOrigin;
     public GameObject bulletPrefab;
     public float bulletSpeed;
+    public AudioSource shootingAudio;
+    public AudioSource explosionAudio;
+
+    public GameObject gameOver;
+    public GameObject victoryScreen;
 
     public void OnShoot(InputAction.CallbackContext ctx)
     {
@@ -38,21 +43,25 @@ public class PlayerController : MonoBehaviour, IDamagable
         movement = ctx.ReadValue<Vector2>();
     }
 
-    // Start is called before the first frame update
     void Start()
     {
         rb = GetComponent<Rigidbody>();
         cam = Camera.main;
         mousePos = Vector2.zero;
         movement = Vector2.zero;
+        shootingAudio = bulletOrigin.GetComponent<AudioSource>();
+        explosionAudio = GetComponent<AudioSource>();
     }
 
     void Update()
     {
         if (health <= 0)
         {
-            Debug.Log("You have died");
+            AudioSource.PlayClipAtPoint(explosionAudio.clip, transform.position);
+            gameObject.SetActive(false);
+            gameOver.SetActive(true);
         }
+        CheckVictory();
     }
 
     void FixedUpdate()
@@ -75,6 +84,7 @@ public class PlayerController : MonoBehaviour, IDamagable
 
     private void Shoot()
     {
+        shootingAudio.Play();
         GameObject bullet = Instantiate(bulletPrefab, bulletOrigin.position, bulletOrigin.rotation);
         Bullet bulletScript = bullet.GetComponent<Bullet>();
         bulletScript.lifetime = 3f;
@@ -85,5 +95,11 @@ public class PlayerController : MonoBehaviour, IDamagable
     public void Damage()
     {
         health -= 10;
+    }
+
+    public void CheckVictory()
+    {
+        if (EnemyAI.count <= 0)
+            victoryScreen.SetActive(true);
     }
 }

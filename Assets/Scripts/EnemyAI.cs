@@ -1,17 +1,23 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
 public class EnemyAI : MonoBehaviour, IDamagable
 {
+    public static int count;
+
     [SerializeField] private GameObject player;
     [SerializeField] private Transform defencePoint;
 
-    private Rigidbody rb;
-    public List<GameObject> waypoints;
-    public int currentWaypoint;
-    public float waypointThreshold;
+    public List<GameObject> checkpoints;
+    private int currentCheckpoint;
+    public float checkpointThreshold;
 
+    Vector3[] path;
+    private int currentWaypoint;
+    public float waypointThreshold;
+    private float pathRequestCooldown;
+
+    private Rigidbody rb;
     public float thrust;
     public float maxSpeed;
     public float rotSpeed;
@@ -25,10 +31,17 @@ public class EnemyAI : MonoBehaviour, IDamagable
     public float bulletSpeed;
     public float maxFireRange;
     public float fireAngle;
-    public float fireRangePercent; // This is the percentage of the max fire range before maintaining distance
+    public float maintainDist;
+    public float maintainDistDelta;
 
     public float engageRadius;
     public float disengageRadius;
+
+    public Vector2 response;
+    public List<GameObject> obstacles;
+
+    public AudioSource shootingAudio;
+    public AudioSource explosionAudio;
 
     [SerializeField] private AIState state;
 
@@ -37,39 +50,45 @@ public class EnemyAI : MonoBehaviour, IDamagable
         Patrolling,
         CloseDistance,
         MaintainDistance,
+        AvoidCollision,
     }
 
     void Start()
     {
-        currentWaypoint = 0;
         rb = GetComponent<Rigidbody>();
         player = GameObject.Find("Player");
         defencePoint = GameObject.Find("Defence Point").transform;
         state = AIState.Patrolling;
+        obstacles = new List<GameObject>();
+        shootingAudio = bulletOrigin.GetComponent<AudioSource>();
+        explosionAudio = GetComponent<AudioSource>();
+        count++;
     }
 
     void Update()
     {
         CheckDeath();
+        HandleCooldowns();
         CheckShoot();
     }
 
     void FixedUpdate()
     {
+        CheckObstables();
         StateTransition();
         StateBehaviour();
     }
 
-    private void Movement(GameObject waypoint, float thrust)
+    private void Movement(float lateralThrust, float forwardThrust)
     {
-        rb.AddRelativeForce(new Vector3(0f, 0f, thrust), ForceMode.Force);
+        rb.AddRelativeForce(new Vector3(lateralThrust, 0f, forwardThrust), ForceMode.Force);
         rb.velocity = Vector3.ClampMagnitude(rb.velocity, maxSpeed);
     }
 
-    private void LookToward(GameObject _target)
+    private void LookToward(Vector3 _target)
     {
         Vector2 shipPos = new Vector2(transform.position.x, transform.position.z);
-        Vector2 target = new Vector2(_target.transform.position.x, _target.transform.position.z);
+        Vector2 target = new Vector2(_target.x, _target.z);
         Vector2 shipDirection = new Vector2(transform.forward.x, transform.forward.z);
         Vector2 vecToWaypoint = new Vector2(target.x - shipPos.x, target.y - shipPos.y);
 
@@ -80,6 +99,7 @@ public class EnemyAI : MonoBehaviour, IDamagable
 
     private void Shoot()
     {
+        shootingAudio.Play();
         GameObject bullet = Instantiate(bulletPrefab, bulletOrigin.position, bulletOrigin.rotation);
         Bullet bulletScript = bullet.GetComponent<Bullet>();
         bulletScript.lifetime = 3f;
@@ -89,19 +109,23 @@ public class EnemyAI : MonoBehaviour, IDamagable
 
     private void CheckShoot()
     {
-        shootCooldown -= Time.fixedDeltaTime;
-
         Vector2 shipPos = new Vector2(player.transform.position.x, player.transform.position.z);
-        Vector2 vecToPlayer = new Vector2(shipPos.x - bulletOrigin.position.x, shipPos.y - bulletOrigin.position.z);
+        Vector2 vecToPlayer = shipPos - new Vector2(bulletOrigin.position.x,  bulletOrigin.position.z);
         if (vecToPlayer.magnitude > maxFireRange)
             return;
 
-        float angleToPlayer = Vector2.Angle(bulletOrigin.up, vecToPlayer);
-        if (angleToPlayer > fireAngle)
+        float angleToPlayer = Vector2.Angle(new Vector2(bulletOrigin.up.x, bulletOrigin.up.z), vecToPlayer.normalized);
+        if (angleToPlayer > fireAngle/2f)
             return;
 
         if (shootCooldown <= 0f)
             Shoot();
+    }
+
+    private void HandleCooldowns()
+    {
+        shootCooldown -= Time.deltaTime;
+        pathRequestCooldown -= Time.deltaTime;
     }
 
     public void Damage()
@@ -112,67 +136,155 @@ public class EnemyAI : MonoBehaviour, IDamagable
     private void CheckDeath()
     {
         if (health <= 0)
-            Destroy(gameObject);
+        {
+            count--;
+            AudioSource.PlayClipAtPoint(explosionAudio.clip, transform.position);
+            gameObject.SetActive(false);
+        }
     }
 
     private void StateBehaviour()
     {
-        if (state == AIState.CloseDistance)
+        switch (state)
         {
-            LookToward(player);
-            Movement(player, thrust);
-        }
+            case AIState.Patrolling:
+                Vector3 checkpoint = GetCheckpoint();
+                LookToward(checkpoint);
+                Movement(0f, thrust);
+                break;
 
-        else if (state == AIState.MaintainDistance)
-        {
-            LookToward(player);
-            Movement(player, -thrust);
-        }
+            case AIState.CloseDistance:
+                if (pathRequestCooldown <= 0f)
+                    PathRequestManager.RequestPath(transform.position, player.transform.position, OnPathFound);
+                Vector3 waypoint = GetWaypoint();
+                LookToward(waypoint);
+                Movement(0f, thrust);
+                break;
 
-        else if (state == AIState.Patrolling)
-        {
-            GameObject waypoint = GetWaypoint();
-            LookToward(waypoint);
-            Movement(waypoint, thrust);
+            case AIState.MaintainDistance:
+                LookToward(player.transform.position);
+                Movement(0f, -thrust);
+                break;
+
+            case AIState.AvoidCollision:
+                LookToward(player.transform.position);
+                Movement(thrust * response.x, thrust * response.y);
+                break;
+
+            default:
+                break;
         }
     }
 
     private void StateTransition()
     {
         Vector2 playerShipPos = new Vector2(player.transform.position.x, player.transform.position.z);
+
         // distance between the player and the station
         float playerStationDist = new Vector2(playerShipPos.x - defencePoint.position.x, playerShipPos.y - defencePoint.position.z).magnitude;
+
         // distance between the player and the Enemy
         float playerEnemyDist = new Vector2(playerShipPos.x - transform.position.x, playerShipPos.y - transform.position.z).magnitude;
 
-        if ((state == AIState.CloseDistance || state == AIState.MaintainDistance) && playerStationDist >= disengageRadius)
+        if (state != AIState.Patrolling && playerStationDist >= disengageRadius)
+        {
+            path = null;
             state = AIState.Patrolling;
-
+        }
         else if (state == AIState.Patrolling && playerStationDist <= engageRadius)
+        {
+            path = null;
             state = AIState.CloseDistance;
-
-        else if (state == AIState.CloseDistance && playerEnemyDist <= fireRangePercent/100f * maxFireRange)
+        }
+        else if (state == AIState.CloseDistance && playerEnemyDist <= maintainDist - maintainDistDelta)
+        {
+            path = null;
             state = AIState.MaintainDistance;
-
-        else if (state == AIState.MaintainDistance && playerEnemyDist > maxFireRange)
+        }
+        else if (state == AIState.MaintainDistance && playerEnemyDist > maintainDist + maintainDistDelta)
+        {
+            path = null;
             state = AIState.CloseDistance;
+        }
     }
 
-    private GameObject GetWaypoint()
+    private Vector3 GetCheckpoint()
     {
-        GameObject waypoint = waypoints[currentWaypoint];
-
+        Vector3 checkpoint = checkpoints[currentCheckpoint].transform.position;
         Vector2 shipPos = new Vector2(transform.position.x, transform.position.z);
-        Vector2 waypointPos = new Vector2(waypoint.transform.position.x, waypoint.transform.position.z);
+        Vector2 checkpointPos = new Vector2(checkpoint.x, checkpoint.z);
+
+        float checkpointDist = (checkpointPos - shipPos).magnitude;
+        if (checkpointDist <= checkpointThreshold)
+        {
+            currentCheckpoint++;
+            if (currentCheckpoint >= checkpoints.Count)
+                currentCheckpoint = 0;
+            checkpoint = checkpoints[currentCheckpoint].transform.position;
+        }
+
+        return checkpoint;
+    }
+
+    private Vector3 GetWaypoint()
+    {
+        if (path == null || path.Length <= 0)
+            return GetCheckpoint();
+
+        Vector3 waypoint = path[currentWaypoint];
+        Vector2 shipPos = new Vector2(transform.position.x, transform.position.z);
+        Vector2 waypointPos = new Vector2(waypoint.x, waypoint.z);
+
         float waypointDist = (waypointPos - shipPos).magnitude;
         if (waypointDist <= waypointThreshold)
         {
             currentWaypoint++;
-            if (currentWaypoint >= waypoints.Count)
+            if (currentWaypoint >= checkpoints.Count)
                 currentWaypoint = 0;
-            waypoint = waypoints[currentWaypoint];
+            waypoint = path[currentWaypoint];
         }
 
         return waypoint;
+    }
+
+    public void OnPathFound(Vector3[] newPath, bool pathSuccessful)
+    {
+        currentWaypoint = 0;
+
+        if (pathSuccessful)
+            path = newPath;
+        else
+            path = null;
+    }
+
+    
+    private void CheckObstables()
+    {
+        response = new Vector2(0f, 0f);
+        foreach (GameObject obstacle in obstacles)
+        {
+            Vector3 desire = (transform.position - obstacle.transform.position).normalized;
+            response += new Vector2(desire.x, desire.z);
+        }
+
+        if (response == Vector2.zero)
+            return;
+
+        response.Normalize();
+    }
+    
+
+    private void OnTriggerEnter(Collider other)
+    {
+        if (other.isTrigger)
+            return;
+        obstacles.Add(other.gameObject);
+    }
+
+    private void OnTriggerExit(Collider other)
+    {
+        if (other.isTrigger)
+            return;
+        obstacles.Remove(other.gameObject);
     }
 }

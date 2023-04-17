@@ -18,10 +18,13 @@ public class Bullet : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
+        if (other.isTrigger)
+            return;
+
         IDamagable damagable = other.gameObject.GetComponent<IDamagable>();
         if (damagable != null)
             damagable.Damage();
-        Debug.Log("I have been triggered");
+        
         Destroy(gameObject);
     }
 }

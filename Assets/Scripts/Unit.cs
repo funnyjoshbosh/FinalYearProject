@@ -17,7 +17,7 @@ public class Unit : MonoBehaviour {
 
 	void Start()
 	{
-		PathRequestManager.RequestPath(transform.position,target.position, OnPathFound);
+		PathRequestManager.RequestPath(transform.position, target.position, OnPathFound);
 	}
 
 	public void OnPathFound(Vector3[] newPath, bool pathSuccessful)
